@@ -3,14 +3,17 @@ package com.uesleilima.spring.batch.integration.config;
 import java.io.File;
 import java.text.DateFormat;
 import java.text.SimpleDateFormat;
+import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Date;
+import java.util.List;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.batch.core.BatchStatus;
 import org.springframework.batch.core.Job;
 import org.springframework.batch.core.JobExecution;
+import org.springframework.batch.core.JobExecutionListener;
 import org.springframework.batch.core.JobParametersBuilder;
 import org.springframework.batch.core.StepExecution;
 import org.springframework.batch.core.configuration.JobRegistry;
@@ -24,6 +27,7 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.integration.config.EnableIntegration;
 import org.springframework.integration.core.MessageSource;
+import org.springframework.integration.dsl.DelayerEndpointSpec;
 import org.springframework.integration.dsl.IntegrationFlow;
 import org.springframework.integration.dsl.IntegrationFlows;
 import org.springframework.integration.dsl.channel.MessageChannels;
@@ -31,6 +35,7 @@ import org.springframework.integration.dsl.core.Pollers;
 import org.springframework.integration.file.FileReadingMessageSource;
 import org.springframework.integration.file.filters.CompositeFileListFilter;
 import org.springframework.integration.file.filters.SimplePatternFileListFilter;
+import org.springframework.integration.gateway.GatewayProxyFactoryBean;
 import org.springframework.integration.scheduling.PollerMetadata;
 import org.springframework.messaging.MessageChannel;
 
@@ -62,6 +67,46 @@ public class IntegrationConfig {
 		return initializer;
 	}
 
+	@Bean(name = PollerMetadata.DEFAULT_POLLER)
+	public PollerMetadata poller() {
+		return Pollers.fixedRate(DIRECTORY_POOL_RATE).get();
+	}
+
+	@Bean(name = "file-pool")
+	public MessageChannel fileInputChannel() {
+		return MessageChannels.queue().get();
+	}
+	
+	@Bean(name = "job-requests")
+	public MessageChannel jobRequestChannel() {
+		return MessageChannels.queue().get();
+	}
+	
+	@Bean(name = "job-executions")
+	public MessageChannel jobExecutionChannel() {
+		return MessageChannels.queue().get();
+	}
+	
+	@Bean(name = "job-statuses")
+	public MessageChannel jobStatusChannel() {
+		return MessageChannels.queue().get();
+	}
+	
+	@Bean(name = "job-restarts")
+	public MessageChannel jobRestartChannel() {
+		return MessageChannels.queue().get();
+	}
+	
+	@Bean(name = "job-completions")
+	public MessageChannel jobCompletionChannel() {
+		return MessageChannels.queue().get();
+	}
+	
+	@Bean(name = "notifiable-executions")
+	public MessageChannel notifiableExecutionChannel() {
+		return MessageChannels.queue().get();
+	}
+
 	@Bean
 	public IntegrationFlow processFilesFlow() {
 		return IntegrationFlows.from(fileReadingMessageSource(), c -> c.poller(poller()))
@@ -69,30 +114,54 @@ public class IntegrationConfig {
 				.<File, JobLaunchRequest>transform(f -> transformFileToRequest(f))
 				.channel(jobRequestChannel())
 				.handle(jobRequestHandler())
-				.<JobExecution, String>transform(e -> transformJobExecutionToStatus(e))
 				.channel(jobStatusChannel())
+				.get();
+	}
+	
+	@Bean
+	public IntegrationFlow processExecutionsFlow() {
+		return IntegrationFlows.from(jobExecutionChannel())
+				.<JobExecution, List<String>>route(e -> routeJobExecution(e))
+				.get();
+	}
+	
+	@Bean
+	public IntegrationFlow processExecutionRestartsFlow() {
+		return IntegrationFlows.from(jobRestartChannel())
+				.delay("wait5sec", (DelayerEndpointSpec e) -> e.defaultDelay(5000))
+				.handle(e -> jobRestarter((JobExecution)e.getPayload()))
+				.get();
+	}
+	
+	@Bean
+	public IntegrationFlow processNotifiableExecutionFlow() {
+		return IntegrationFlows.from(notifiableExecutionChannel())
+				.<JobExecution, String>transform(e -> transformJobExecutionToStatus(e))
 				.handle(s -> log.info(s.toString()))
 				.get();
 	}
-
-	@Bean(name = PollerMetadata.DEFAULT_POLLER)
-	public PollerMetadata poller() {
-		return Pollers.fixedRate(DIRECTORY_POOL_RATE).get();
-	}
-
+	
 	@Bean
-	public MessageChannel fileInputChannel() {
-		return MessageChannels.direct().get();
+	public GatewayProxyFactoryBean jobExecutionsListener(){
+	     GatewayProxyFactoryBean factoryBean = new GatewayProxyFactoryBean(JobExecutionListener.class);
+	     factoryBean.setDefaultRequestChannel(jobExecutionChannel());
+	     return factoryBean;
 	}
+	
+	public List<String> routeJobExecution(JobExecution jobExecution) {
+		final List<String> routeToChannels = new ArrayList<String>();
 
-	@Bean
-	public MessageChannel jobRequestChannel() {
-		return MessageChannels.direct().get();
-	}
-
-	@Bean
-	public MessageChannel jobStatusChannel() {
-		return MessageChannels.direct().get();
+		if (jobExecution.getStatus().equals(BatchStatus.FAILED)) {
+			routeToChannels.add("job-restarts");
+		}
+		else {
+			if (jobExecution.getStatus().equals(BatchStatus.COMPLETED)) {
+				routeToChannels.add("job-completions");
+			}
+			routeToChannels.add("notifiable-executions");
+		}
+		log.info("Routing to: " + routeToChannels);
+		return routeToChannels;
 	}
 
 	@Bean
@@ -113,6 +182,17 @@ public class IntegrationConfig {
 	public JobLaunchingMessageHandler jobRequestHandler() {
 		return new JobLaunchingMessageHandler(jobLauncher);
 	}
+	
+	
+	public void jobRestarter(JobExecution execution) {
+		log.info("Restarting job...");
+		try {
+			Job job = jobRegistry.getJob(execution.getJobInstance().getJobName());
+			jobLauncher.run(job, execution.getJobParameters());
+		} catch (Exception e) {
+			throw new RuntimeException(e);
+		}
+	}
 
 	public JobLaunchRequest transformFileToRequest(File file) {
 		log.debug("Creating request");
@@ -122,6 +202,7 @@ public class IntegrationConfig {
 		log.debug("Job = " + job.getName());
 
 		JobParametersBuilder paramsBuilder = new JobParametersBuilder();
+		paramsBuilder.addDate("start.date", new Date());
 		paramsBuilder.addString("input.file.name", file.getPath());
 
 		log.debug("Parameters = " + paramsBuilder.toString());

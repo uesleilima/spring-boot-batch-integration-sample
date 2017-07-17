@@ -1,7 +1,7 @@
 # Spring Boot Batch-Integration Sample
 Sample project for Spring Batch and Spring Integration using Spring Boot and Java Config
 
-## Objective
+## Goal
 Build a processing flow using the IntegrationFlow configuration builder and general Java Config instead of xml bean configuration to activate batch jobs and read/write message channels.
 
 ## Spring Integration + Spring Batch + JPA

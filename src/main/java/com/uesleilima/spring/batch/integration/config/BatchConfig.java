@@ -3,6 +3,7 @@ package com.uesleilima.spring.batch.integration.config;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.batch.core.Job;
+import org.springframework.batch.core.JobExecutionListener;
 import org.springframework.batch.core.Step;
 import org.springframework.batch.core.configuration.annotation.EnableBatchProcessing;
 import org.springframework.batch.core.configuration.annotation.JobBuilderFactory;
@@ -82,9 +83,10 @@ public class BatchConfig {
 	}
 
 	@Bean
-	public Job processingJobBean(Step processingStep) {
+	public Job processingJobBean(Step processingStep, JobExecutionListener listener) {
 		log.debug("Configuring Job: " + JOB_NAME);
 		return jobBuilderFactory.get(JOB_NAME)
+				.listener(listener)
 				.incrementer(new RunIdIncrementer())
 				.flow(processingStep)
 				.end()
