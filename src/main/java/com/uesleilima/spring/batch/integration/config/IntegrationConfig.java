@@ -35,6 +35,7 @@ import org.springframework.integration.scheduling.PollerMetadata;
 import org.springframework.messaging.MessageChannel;
 
 import com.uesleilima.spring.batch.integration.components.LastModifiedFileFilter;
+import com.uesleilima.spring.batch.integration.domain.EntryRepository;
 
 @Configuration
 @EnableIntegration
@@ -42,13 +43,17 @@ public class IntegrationConfig {
 
 	private static final Logger log = LoggerFactory.getLogger(IntegrationConfig.class);
 
-	private static final String DIRECTORY = "C:\\Temp\\files\\";
+	public static final String DIRECTORY = "C:\\Temp\\files-to-process\\";
+	public static final Long DIRECTORY_POOL_RATE = (long) 1000;
 
 	@Autowired
 	private JobLauncher jobLauncher;
 
 	@Autowired
 	private JobRegistry jobRegistry;
+
+	@Autowired
+	private EntryRepository repository;
 
 	@Bean
 	public JobRegistryBeanPostProcessor jobRegistryInitializer() {
@@ -61,10 +66,10 @@ public class IntegrationConfig {
 	public IntegrationFlow processFilesFlow() {
 		return IntegrationFlows.from(fileReadingMessageSource(), c -> c.poller(poller()))
 				.channel(fileInputChannel())
-				.<File, JobLaunchRequest>transform(f -> transformFile(f))
+				.<File, JobLaunchRequest>transform(f -> transformFileToRequest(f))
 				.channel(jobRequestChannel())
 				.handle(jobRequestHandler())
-				.<JobExecution, String>transform(e -> transformJobExecution(e))
+				.<JobExecution, String>transform(e -> transformJobExecutionToStatus(e))
 				.channel(jobStatusChannel())
 				.handle(s -> log.info(s.toString()))
 				.get();
@@ -72,7 +77,7 @@ public class IntegrationConfig {
 
 	@Bean(name = PollerMetadata.DEFAULT_POLLER)
 	public PollerMetadata poller() {
-		return Pollers.fixedRate(500).get();
+		return Pollers.fixedRate(DIRECTORY_POOL_RATE).get();
 	}
 
 	@Bean
@@ -109,8 +114,8 @@ public class IntegrationConfig {
 		return new JobLaunchingMessageHandler(jobLauncher);
 	}
 
-	public JobLaunchRequest transformFile(File file) {
-		System.out.println("Creating request");
+	public JobLaunchRequest transformFileToRequest(File file) {
+		log.debug("Creating request");
 
 		Job job = getJobByFileName(file);
 
@@ -125,7 +130,7 @@ public class IntegrationConfig {
 		return request;
 	}
 
-	public String transformJobExecution(JobExecution execution) {
+	public String transformJobExecutionToStatus(JobExecution execution) {
 		DateFormat formatter = new SimpleDateFormat("yyyy/MM/dd hh:mm:ss.SS");
 		StringBuilder builder = new StringBuilder();
 
@@ -135,6 +140,8 @@ public class IntegrationConfig {
 		if (evaluatedStatus == BatchStatus.COMPLETED || evaluatedStatus.compareTo(BatchStatus.STARTED) > 0) {
 			builder.append(" has completed with a status of " + execution.getStatus().name() + " at "
 					+ formatter.format(new Date()));
+			
+			builder.append(" with " + repository.count() + " processed records.");
 		} else {
 			builder.append(" has started at " + formatter.format(new Date()));
 		}

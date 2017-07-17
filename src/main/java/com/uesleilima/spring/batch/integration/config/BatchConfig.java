@@ -45,7 +45,7 @@ public class BatchConfig {
 
 	@Bean
 	@StepScope
-	public FlatFileItemReader<Entry> reader(@Value("file:///#{jobParameters['input.file.name']}") final Resource fileName) {
+	public FlatFileItemReader<Entry> reader(@Value("file:///#{jobParameters['input.file.name']}") final Resource resource) throws Exception {
 		DelimitedLineTokenizer tokenizer = new DelimitedLineTokenizer();
 		tokenizer.setNames(new String[] { "source", "destination", "amount", "date" });
 
@@ -55,9 +55,11 @@ public class BatchConfig {
 		mapper.afterPropertiesSet();
 
 		FlatFileItemReader<Entry> reader = new FlatFileItemReader<>();
-		reader.setResource(fileName);
+		reader.setResource(resource);
 		reader.setLinesToSkip(1);
 		reader.setLineMapper(mapper);
+		reader.afterPropertiesSet();
+		
 		return reader;
 	}
 
@@ -73,7 +75,7 @@ public class BatchConfig {
 	public Step processingStepBean(ItemReader<Entry> reader, ItemWriter<Entry> writer) {
 		log.debug("Configuring Step: " + STEP_NAME);
 		return stepBuilderFactory.get(STEP_NAME)
-				.<Entry, Entry>chunk(1)
+				.<Entry, Entry>chunk(5)
 				.reader(reader)
 				.writer(writer)
 				.build();
