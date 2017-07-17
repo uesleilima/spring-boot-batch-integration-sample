@@ -45,7 +45,7 @@ public class BatchConfig {
 
 	@Bean
 	@StepScope
-	public ItemReader<Entry> reader(@Value("#{jobParameters['input.file.name']}") final Resource fileName) {
+	public FlatFileItemReader<Entry> reader(@Value("file:///#{jobParameters['input.file.name']}") final Resource fileName) {
 		DelimitedLineTokenizer tokenizer = new DelimitedLineTokenizer();
 		tokenizer.setNames(new String[] { "source", "destination", "amount", "date" });
 
@@ -62,7 +62,7 @@ public class BatchConfig {
 	}
 
 	@Bean
-	public ItemWriter<Entry> writer() {
+	public RepositoryItemWriter<Entry> writer() {
 		RepositoryItemWriter<Entry> writer = new RepositoryItemWriter<>();
 		writer.setRepository(repository);
 		writer.setMethodName("save");

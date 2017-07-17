@@ -22,17 +22,19 @@ import org.springframework.batch.integration.launch.JobLaunchingMessageHandler;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
-import org.springframework.integration.channel.DirectChannel;
 import org.springframework.integration.config.EnableIntegration;
 import org.springframework.integration.core.MessageSource;
 import org.springframework.integration.dsl.IntegrationFlow;
 import org.springframework.integration.dsl.IntegrationFlows;
+import org.springframework.integration.dsl.channel.MessageChannels;
 import org.springframework.integration.dsl.core.Pollers;
 import org.springframework.integration.file.FileReadingMessageSource;
 import org.springframework.integration.file.filters.CompositeFileListFilter;
 import org.springframework.integration.file.filters.SimplePatternFileListFilter;
 import org.springframework.integration.scheduling.PollerMetadata;
 import org.springframework.messaging.MessageChannel;
+
+import com.uesleilima.spring.batch.integration.components.LastModifiedFileFilter;
 
 @Configuration
 @EnableIntegration
@@ -61,9 +63,10 @@ public class IntegrationConfig {
 				.channel(fileInputChannel())
 				.<File, JobLaunchRequest>transform(f -> transformFile(f))
 				.channel(jobRequestChannel())
-				.handle(handler())
+				.handle(jobRequestHandler())
 				.<JobExecution, String>transform(e -> transformJobExecution(e))
 				.channel(jobStatusChannel())
+				.handle(s -> log.info(s.toString()))
 				.get();
 	}
 
@@ -74,23 +77,24 @@ public class IntegrationConfig {
 
 	@Bean
 	public MessageChannel fileInputChannel() {
-		return new DirectChannel();
+		return MessageChannels.direct().get();
 	}
 
 	@Bean
 	public MessageChannel jobRequestChannel() {
-		return new DirectChannel();
+		return MessageChannels.direct().get();
 	}
 
 	@Bean
 	public MessageChannel jobStatusChannel() {
-		return new DirectChannel();
+		return MessageChannels.direct().get();
 	}
 
 	@Bean
 	public MessageSource<File> fileReadingMessageSource() {
 		CompositeFileListFilter<File> filters = new CompositeFileListFilter<>();
 		filters.addFilter(new SimplePatternFileListFilter("*.txt"));
+		filters.addFilter(new LastModifiedFileFilter());
 
 		FileReadingMessageSource source = new FileReadingMessageSource();
 		source.setAutoCreateDirectory(true);
@@ -101,7 +105,7 @@ public class IntegrationConfig {
 	}
 
 	@Bean
-	public JobLaunchingMessageHandler handler() {
+	public JobLaunchingMessageHandler jobRequestHandler() {
 		return new JobLaunchingMessageHandler(jobLauncher);
 	}
 
@@ -134,8 +138,6 @@ public class IntegrationConfig {
 		} else {
 			builder.append(" has started at " + formatter.format(new Date()));
 		}
-		
-		log.info("Job Execution Status: " + builder.toString());
 
 		return builder.toString();
 	}
