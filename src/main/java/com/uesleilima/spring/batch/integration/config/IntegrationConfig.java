@@ -3,10 +3,8 @@ package com.uesleilima.spring.batch.integration.config;
 import java.io.File;
 import java.text.DateFormat;
 import java.text.SimpleDateFormat;
-import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Date;
-import java.util.List;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -97,11 +95,6 @@ public class IntegrationConfig {
 		return MessageChannels.queue().get();
 	}
 	
-	@Bean(name = "job-completions")
-	public MessageChannel jobCompletionChannel() {
-		return MessageChannels.queue().get();
-	}
-	
 	@Bean(name = "notifiable-executions")
 	public MessageChannel notifiableExecutionChannel() {
 		return MessageChannels.queue().get();
@@ -121,7 +114,11 @@ public class IntegrationConfig {
 	@Bean
 	public IntegrationFlow processExecutionsFlow() {
 		return IntegrationFlows.from(jobExecutionChannel())
-				.<JobExecution, List<String>>route(e -> routeJobExecution(e))
+				.route(JobExecution.class, e -> e.getStatus().equals(BatchStatus.FAILED),
+						m -> m.channelMapping(true, "job-restarts")
+							  .subFlowMapping(false, f -> f.channel(notifiableExecutionChannel())
+									  )
+							  )
 				.get();
 	}
 	
@@ -146,22 +143,6 @@ public class IntegrationConfig {
 	     GatewayProxyFactoryBean factoryBean = new GatewayProxyFactoryBean(JobExecutionListener.class);
 	     factoryBean.setDefaultRequestChannel(jobExecutionChannel());
 	     return factoryBean;
-	}
-	
-	public List<String> routeJobExecution(JobExecution jobExecution) {
-		final List<String> routeToChannels = new ArrayList<String>();
-
-		if (jobExecution.getStatus().equals(BatchStatus.FAILED)) {
-			routeToChannels.add("job-restarts");
-		}
-		else {
-			if (jobExecution.getStatus().equals(BatchStatus.COMPLETED)) {
-				routeToChannels.add("job-completions");
-			}
-			routeToChannels.add("notifiable-executions");
-		}
-		log.info("Routing to: " + routeToChannels);
-		return routeToChannels;
 	}
 
 	@Bean
@@ -198,7 +179,6 @@ public class IntegrationConfig {
 		log.debug("Creating request");
 
 		Job job = getJobByFileName(file);
-
 		log.debug("Job = " + job.getName());
 
 		JobParametersBuilder paramsBuilder = new JobParametersBuilder();
