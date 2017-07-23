@@ -9,6 +9,7 @@ import java.util.Date;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.batch.core.BatchStatus;
+import org.springframework.batch.core.ExitStatus;
 import org.springframework.batch.core.Job;
 import org.springframework.batch.core.JobExecution;
 import org.springframework.batch.core.JobExecutionListener;
@@ -31,13 +32,16 @@ import org.springframework.integration.dsl.IntegrationFlows;
 import org.springframework.integration.dsl.channel.MessageChannels;
 import org.springframework.integration.dsl.core.Pollers;
 import org.springframework.integration.file.FileReadingMessageSource;
+import org.springframework.integration.file.FileWritingMessageHandler;
+import org.springframework.integration.file.filters.AcceptOnceFileListFilter;
 import org.springframework.integration.file.filters.CompositeFileListFilter;
 import org.springframework.integration.file.filters.SimplePatternFileListFilter;
+import org.springframework.integration.file.support.FileExistsMode;
 import org.springframework.integration.gateway.GatewayProxyFactoryBean;
 import org.springframework.integration.scheduling.PollerMetadata;
+import org.springframework.integration.transformer.GenericTransformer;
 import org.springframework.messaging.MessageChannel;
 
-import com.uesleilima.spring.batch.integration.components.LastModifiedFileFilter;
 import com.uesleilima.spring.batch.integration.domain.EntryRepository;
 
 @Configuration
@@ -46,8 +50,9 @@ public class IntegrationConfig {
 
 	private static final Logger log = LoggerFactory.getLogger(IntegrationConfig.class);
 
-	public static final String DIRECTORY = "C:\\Temp\\files-to-process\\";
-	public static final Long DIRECTORY_POOL_RATE = (long) 1000;
+	public static final Long INPUT_DIRECTORY_POOL_RATE = (long) 1000;
+	public static final String INPUT_DIRECTORY = "C:\\Temp\\file-process-sample\\input";
+	public static final String PROCESSED_DIRECTORY = "C:\\Temp\\file-process-sample\\output";
 
 	@Autowired
 	private JobLauncher jobLauncher;
@@ -67,36 +72,41 @@ public class IntegrationConfig {
 
 	@Bean(name = PollerMetadata.DEFAULT_POLLER)
 	public PollerMetadata poller() {
-		return Pollers.fixedRate(DIRECTORY_POOL_RATE).get();
+		return Pollers.fixedRate(INPUT_DIRECTORY_POOL_RATE).get();
 	}
-
-	@Bean(name = "file-pool")
+	
+	@Bean
 	public MessageChannel fileInputChannel() {
-		return MessageChannels.queue().get();
+		return MessageChannels.direct().get();
 	}
 	
-	@Bean(name = "job-requests")
+	@Bean
 	public MessageChannel jobRequestChannel() {
-		return MessageChannels.queue().get();
+		return MessageChannels.direct().get();
 	}
 	
-	@Bean(name = "job-executions")
+	@Bean
 	public MessageChannel jobExecutionChannel() {
 		return MessageChannels.queue().get();
 	}
 	
-	@Bean(name = "job-statuses")
+	@Bean
 	public MessageChannel jobStatusChannel() {
-		return MessageChannels.queue().get();
+		return MessageChannels.publishSubscribe().get();
 	}
 	
-	@Bean(name = "job-restarts")
+	@Bean
 	public MessageChannel jobRestartChannel() {
 		return MessageChannels.queue().get();
 	}
 	
-	@Bean(name = "notifiable-executions")
-	public MessageChannel notifiableExecutionChannel() {
+	@Bean
+	public MessageChannel jobExecutionNotifiedChannel() {
+		return MessageChannels.queue().get();
+	}
+	
+	@Bean
+	public MessageChannel jobCompletedChannel() {
 		return MessageChannels.queue().get();
 	}
 
@@ -107,6 +117,7 @@ public class IntegrationConfig {
 				.<File, JobLaunchRequest>transform(f -> transformFileToRequest(f))
 				.channel(jobRequestChannel())
 				.handle(jobRequestHandler())
+				.<JobExecution, String>transform(e -> transformJobExecutionToStatus(e))
 				.channel(jobStatusChannel())
 				.get();
 	}
@@ -114,11 +125,9 @@ public class IntegrationConfig {
 	@Bean
 	public IntegrationFlow processExecutionsFlow() {
 		return IntegrationFlows.from(jobExecutionChannel())
-				.route(JobExecution.class, e -> e.getStatus().equals(BatchStatus.FAILED),
-						m -> m.channelMapping(true, "job-restarts")
-							  .subFlowMapping(false, f -> f.channel(notifiableExecutionChannel())
-									  )
-							  )
+				.route(JobExecution.class, e -> e.getExitStatus().equals(ExitStatus.FAILED),
+						m -> m.subFlowMapping(true, f -> f.channel(jobRestartChannel()))
+							  .subFlowMapping(false, f -> f.channel(jobExecutionNotifiedChannel())))
 				.get();
 	}
 	
@@ -131,13 +140,25 @@ public class IntegrationConfig {
 	}
 	
 	@Bean
-	public IntegrationFlow processNotifiableExecutionFlow() {
-		return IntegrationFlows.from(notifiableExecutionChannel())
-				.<JobExecution, String>transform(e -> transformJobExecutionToStatus(e))
-				.handle(s -> log.info(s.toString()))
+	public IntegrationFlow processNotifiedExecutionFlow() {
+		return IntegrationFlows.from(jobExecutionNotifiedChannel())
+				.route(JobExecution.class, e -> e.getExitStatus().equals(ExitStatus.COMPLETED),
+						m -> m.subFlowMapping(true, f -> f.channel(jobCompletedChannel()))
+							  .subFlowMapping(false, f -> f.<JobExecution, String>transform(e -> transformJobExecutionToStatus(e))
+														   .channel(jobStatusChannel())))
+				
 				.get();
 	}
 	
+	@Bean
+	public IntegrationFlow processExecutionCompletedFlow() {
+		return IntegrationFlows.from(jobCompletedChannel())
+				.transform(jobExecutionToFileTransformer())
+				.handle(processedFileWritingHandler())
+				.channel(jobStatusChannel())
+				.get();
+	}
+
 	@Bean
 	public GatewayProxyFactoryBean jobExecutionsListener(){
 	     GatewayProxyFactoryBean factoryBean = new GatewayProxyFactoryBean(JobExecutionListener.class);
@@ -149,11 +170,11 @@ public class IntegrationConfig {
 	public MessageSource<File> fileReadingMessageSource() {
 		CompositeFileListFilter<File> filters = new CompositeFileListFilter<>();
 		filters.addFilter(new SimplePatternFileListFilter("*.txt"));
-		filters.addFilter(new LastModifiedFileFilter());
+		filters.addFilter(new AcceptOnceFileListFilter<>());
 
 		FileReadingMessageSource source = new FileReadingMessageSource();
 		source.setAutoCreateDirectory(true);
-		source.setDirectory(new File(DIRECTORY));
+		source.setDirectory(new File(INPUT_DIRECTORY));
 		source.setFilter(filters);
 
 		return source;
@@ -164,31 +185,49 @@ public class IntegrationConfig {
 		return new JobLaunchingMessageHandler(jobLauncher);
 	}
 	
+	@Bean
+	public FileWritingMessageHandler processedFileWritingHandler() {
+		FileWritingMessageHandler handler = new FileWritingMessageHandler(new File(PROCESSED_DIRECTORY));
+		handler.setAutoCreateDirectory(true);
+		handler.setDeleteSourceFiles(true);
+		handler.setFileExistsMode(FileExistsMode.REPLACE);
+		return handler;
+	}	
 	
-	public void jobRestarter(JobExecution execution) {
+	public JobExecution jobRestarter(JobExecution execution) {
 		log.info("Restarting job...");
 		try {
 			Job job = jobRegistry.getJob(execution.getJobInstance().getJobName());
-			jobLauncher.run(job, execution.getJobParameters());
+			return jobLauncher.run(job, execution.getJobParameters());
 		} catch (Exception e) {
 			throw new RuntimeException(e);
 		}
 	}
 
 	public JobLaunchRequest transformFileToRequest(File file) {
-		log.debug("Creating request");
+		log.info("Creating request");
 
 		Job job = getJobByFileName(file);
-		log.debug("Job = " + job.getName());
+		log.info("Job = " + job.getName());
 
 		JobParametersBuilder paramsBuilder = new JobParametersBuilder();
 		paramsBuilder.addDate("start.date", new Date());
-		paramsBuilder.addString("input.file.name", file.getPath());
+		paramsBuilder.addString("input.file.path", file.getPath());
 
-		log.debug("Parameters = " + paramsBuilder.toString());
+		log.info("Parameters = " + paramsBuilder.toString());
 
 		JobLaunchRequest request = new JobLaunchRequest(job, paramsBuilder.toJobParameters());
 		return request;
+	}
+	
+	public GenericTransformer<JobExecution, File> jobExecutionToFileTransformer() {
+		return new GenericTransformer<JobExecution, File>(){
+			@Override
+			public File transform(JobExecution source) {
+				String path = source.getJobParameters().getString("input.file.path");
+				return new File(path);
+			}
+		};
 	}
 
 	public String transformJobExecutionToStatus(JobExecution execution) {

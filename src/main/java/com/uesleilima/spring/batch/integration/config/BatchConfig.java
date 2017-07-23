@@ -46,7 +46,9 @@ public class BatchConfig {
 
 	@Bean
 	@StepScope
-	public FlatFileItemReader<Entry> reader(@Value("file:///#{jobParameters['input.file.name']}") final Resource resource) throws Exception {
+	public FlatFileItemReader<Entry> reader(
+			@Value("file:///#{jobParameters['input.file.path']}") Resource resource) throws Exception {
+		
 		DelimitedLineTokenizer tokenizer = new DelimitedLineTokenizer();
 		tokenizer.setNames(new String[] { "source", "destination", "amount", "date" });
 
