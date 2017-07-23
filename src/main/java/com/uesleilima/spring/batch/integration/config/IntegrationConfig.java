@@ -52,7 +52,7 @@ public class IntegrationConfig {
 
 	public static final Long INPUT_DIRECTORY_POOL_RATE = (long) 1000;
 	public static final String INPUT_DIRECTORY = "C:\\Temp\\file-process-sample\\input";
-	public static final String PROCESSED_DIRECTORY = "C:\\Temp\\file-process-sample\\output";
+	public static final String PROCESSED_DIRECTORY = "C:\\Temp\\file-process-sample\\processed";
 
 	@Autowired
 	private JobLauncher jobLauncher;
@@ -203,6 +203,17 @@ public class IntegrationConfig {
 			throw new RuntimeException(e);
 		}
 	}
+	
+	@Bean
+	public GenericTransformer<JobExecution, File> jobExecutionToFileTransformer() {
+		return new GenericTransformer<JobExecution, File>(){
+			@Override
+			public File transform(JobExecution source) {
+				String path = source.getJobParameters().getString("input.file.path");
+				return new File(path);
+			}
+		};
+	}
 
 	public JobLaunchRequest transformFileToRequest(File file) {
 		log.info("Creating request");
@@ -218,16 +229,6 @@ public class IntegrationConfig {
 
 		JobLaunchRequest request = new JobLaunchRequest(job, paramsBuilder.toJobParameters());
 		return request;
-	}
-	
-	public GenericTransformer<JobExecution, File> jobExecutionToFileTransformer() {
-		return new GenericTransformer<JobExecution, File>(){
-			@Override
-			public File transform(JobExecution source) {
-				String path = source.getJobParameters().getString("input.file.path");
-				return new File(path);
-			}
-		};
 	}
 
 	public String transformJobExecutionToStatus(JobExecution execution) {

@@ -12,6 +12,15 @@ Just run it, spring boot maven plugin do all the dirty job for you:
 
 `$ mvn spring-boot:run` 
 
+### Execution Flow
+
+1.   Pool files from input dir;
+2.   Creates job request to process file;
+3.	 Execute request;
+4.	 Execution listener asyncronously populates job execution channel;
+6.	 On job execution fail, restart it;
+7.	 On job execution completion, move original file to 'processed' dir.
+
 ### References
 
 * https://github.com/spring-projects/spring-integration-java-dsl
