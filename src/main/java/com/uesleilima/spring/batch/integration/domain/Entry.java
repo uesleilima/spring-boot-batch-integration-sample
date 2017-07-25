@@ -6,6 +6,10 @@ import java.util.Date;
 import javax.persistence.Entity;
 import javax.persistence.Id;
 
+/**
+ * @author Ueslei Lima
+ *
+ */
 @Entity
 public class Entry {
 	

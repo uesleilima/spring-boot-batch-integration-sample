@@ -13,6 +13,10 @@ import org.springframework.core.io.Resource;
 
 import com.uesleilima.spring.batch.integration.config.IntegrationConfig;
 
+/**
+ * @author Ueslei Lima
+ *
+ */
 @SpringBootApplication
 public class SpringBootBatchIntegrationSampleApplication {	
 	

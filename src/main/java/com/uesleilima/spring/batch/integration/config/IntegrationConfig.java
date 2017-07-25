@@ -43,6 +43,10 @@ import org.springframework.messaging.MessageChannel;
 
 import com.uesleilima.spring.batch.integration.domain.EntryRepository;
 
+/**
+ * @author Ueslei Lima
+ *
+ */
 @Configuration
 @EnableIntegration
 public class IntegrationConfig {

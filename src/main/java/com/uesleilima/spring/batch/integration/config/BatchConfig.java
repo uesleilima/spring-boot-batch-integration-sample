@@ -27,6 +27,10 @@ import com.uesleilima.spring.batch.integration.domain.Entry;
 import com.uesleilima.spring.batch.integration.domain.EntryFieldSetMapper;
 import com.uesleilima.spring.batch.integration.domain.EntryRepository;
 
+/**
+ * @author Ueslei Lima
+ *
+ */
 @Configuration
 @EnableBatchProcessing
 public class BatchConfig {

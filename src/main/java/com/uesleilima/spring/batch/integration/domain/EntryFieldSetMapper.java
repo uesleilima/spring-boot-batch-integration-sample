@@ -4,6 +4,10 @@ import org.springframework.batch.item.file.mapping.FieldSetMapper;
 import org.springframework.batch.item.file.transform.FieldSet;
 import org.springframework.validation.BindException;
 
+/**
+ * @author Ueslei Lima
+ *
+ */
 public class EntryFieldSetMapper implements FieldSetMapper<Entry> {
 
 	@Override
