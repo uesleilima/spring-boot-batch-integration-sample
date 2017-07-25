@@ -40,4 +40,8 @@ public class Entry {
 		this.date = date;
 	}
 	
+	@Override
+	public String toString() {
+		return String.format("Entry [ source=%s, destination=%s, amount=%f, date=%tc ]", source, destination, amount, date);
+	}
 }

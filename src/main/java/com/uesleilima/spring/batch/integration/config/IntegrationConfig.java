@@ -9,7 +9,6 @@ import java.util.Date;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.batch.core.BatchStatus;
-import org.springframework.batch.core.ExitStatus;
 import org.springframework.batch.core.Job;
 import org.springframework.batch.core.JobExecution;
 import org.springframework.batch.core.JobExecutionListener;
@@ -125,7 +124,7 @@ public class IntegrationConfig {
 	@Bean
 	public IntegrationFlow processExecutionsFlow() {
 		return IntegrationFlows.from(jobExecutionChannel())
-				.route(JobExecution.class, e -> e.getExitStatus().equals(ExitStatus.FAILED),
+				.route(JobExecution.class, e -> e.getStatus().equals(BatchStatus.FAILED),
 						m -> m.subFlowMapping(true, f -> f.channel(jobRestartChannel()))
 							  .subFlowMapping(false, f -> f.channel(jobExecutionNotifiedChannel())))
 				.get();
@@ -142,7 +141,7 @@ public class IntegrationConfig {
 	@Bean
 	public IntegrationFlow processNotifiedExecutionFlow() {
 		return IntegrationFlows.from(jobExecutionNotifiedChannel())
-				.route(JobExecution.class, e -> e.getExitStatus().equals(ExitStatus.COMPLETED),
+				.route(JobExecution.class, e -> e.getStatus().equals(BatchStatus.COMPLETED),
 						m -> m.subFlowMapping(true, f -> f.channel(jobCompletedChannel()))
 							  .subFlowMapping(false, f -> f.<JobExecution, String>transform(e -> transformJobExecutionToStatus(e))
 														   .channel(jobStatusChannel())))

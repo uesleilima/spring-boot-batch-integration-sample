@@ -10,6 +10,7 @@ import org.springframework.batch.core.configuration.annotation.JobBuilderFactory
 import org.springframework.batch.core.configuration.annotation.StepBuilderFactory;
 import org.springframework.batch.core.configuration.annotation.StepScope;
 import org.springframework.batch.core.launch.support.RunIdIncrementer;
+import org.springframework.batch.item.ItemProcessor;
 import org.springframework.batch.item.ItemReader;
 import org.springframework.batch.item.ItemWriter;
 import org.springframework.batch.item.data.RepositoryItemWriter;
@@ -65,6 +66,19 @@ public class BatchConfig {
 		
 		return reader;
 	}
+	
+	@Bean
+	public ItemProcessor<Entry, Entry> processor(){
+		return new ItemProcessor<Entry, Entry>(){
+
+			@Override
+			public Entry process(Entry item) throws Exception {
+				log.info("Processing: " + item);
+				return item;
+			}
+			
+		};
+	}
 
 	@Bean
 	public RepositoryItemWriter<Entry> writer() {
@@ -75,11 +89,12 @@ public class BatchConfig {
 	}
 
 	@Bean
-	public Step processingStepBean(ItemReader<Entry> reader, ItemWriter<Entry> writer) {
+	public Step processingStepBean(ItemReader<Entry> reader, ItemProcessor<Entry, Entry> processor, ItemWriter<Entry> writer) {
 		log.debug("Configuring Step: " + STEP_NAME);
 		return stepBuilderFactory.get(STEP_NAME)
 				.<Entry, Entry>chunk(5)
 				.reader(reader)
+				.processor(processor)
 				.writer(writer)
 				.build();
 	}
